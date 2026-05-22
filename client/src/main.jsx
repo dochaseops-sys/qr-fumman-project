@@ -1,10 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Ban, Download, FlaskConical, KeyRound, Plus, QrCode, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { Ban, Download, FlaskConical, KeyRound, MapPin, Plus, QrCode, RefreshCw, Search, ShieldCheck, Lock, Printer } from 'lucide-react';
+import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import './styles.css';
 
 const API_BASE = '';
 const ADMIN_KEY = 'qr_admin_passcode';
+
+function Link({ href, children, ...props }) {
+  const handleClick = (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    e.preventDefault();
+    window.history.pushState(null, '', href);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  return (
+    <a href={href} onClick={handleClick} {...props}>
+      {children}
+    </a>
+  );
+}
 
 async function request(path, options = {}) {
   const headers = {
@@ -28,6 +46,29 @@ async function request(path, options = {}) {
 
 function adminHeaders(passcode) {
   return { 'x-admin-passcode': passcode };
+}
+
+async function getUserLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        });
+      },
+      () => {
+        resolve(null);
+      },
+      { timeout: 5000 }
+    );
+  });
 }
 
 function formatDateTime(value) {
@@ -119,9 +160,25 @@ function TokenVerifyPage({ token }) {
   useEffect(() => {
     let active = true;
     setState({ loading: true, result: null, error: '' });
-    request(`/api/verify/${token}`)
-      .then((result) => active && setState({ loading: false, result, error: '' }))
-      .catch((error) => active && setState({ loading: false, result: null, error: error.message }));
+    
+    (async () => {
+      try {
+        const location = await getUserLocation();
+        const response = await fetch(`${API_BASE}/api/verify/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ location })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Request failed.');
+        }
+        if (active) setState({ loading: false, result: data, error: '' });
+      } catch (error) {
+        if (active) setState({ loading: false, result: null, error: error.message });
+      }
+    })();
+    
     return () => {
       active = false;
     };
@@ -132,7 +189,7 @@ function TokenVerifyPage({ token }) {
       {state.loading ? <p className="muted spacious">Checking code...</p> : null}
       {state.error ? <p className="error">{state.error}</p> : null}
       <ResultView result={state.result} />
-      <a className="link-button" href="/verify">Enter serial manually</a>
+      <Link className="link-button" href="/verify">Enter serial manually</Link>
     </PublicShell>
   );
 }
@@ -149,9 +206,10 @@ function ManualVerifyPage() {
     setError('');
     setResult(null);
     try {
+      const location = await getUserLocation();
       const data = await request('/api/verify-serial', {
         method: 'POST',
-        body: JSON.stringify({ serialCode })
+        body: JSON.stringify({ serialCode, location })
       });
       setResult(data);
     } catch (err) {
@@ -179,14 +237,61 @@ function ManualVerifyPage() {
   );
 }
 
-function AdminLayout({ children, passcode, setPasscode }) {
-  const [draft, setDraft] = useState(passcode);
+function AdminLogin({ setPasscode }) {
+  const [localPasscode, setLocalPasscode] = useState('');
+  const [error, setError] = useState('');
 
-  function savePasscode(event) {
+  function handleSubmit(event) {
     event.preventDefault();
-    localStorage.setItem(ADMIN_KEY, draft);
-    setPasscode(draft);
+    if (!localPasscode.trim()) {
+      setError('Passcode is required.');
+      return;
+    }
+    localStorage.setItem(ADMIN_KEY, localPasscode.trim());
+    setPasscode(localPasscode.trim());
   }
+
+  return (
+    <main className="public-shell">
+      <section className="verify-panel auth-panel">
+        <div className="brand-mark">
+          <KeyRound size={30} />
+        </div>
+        <h1>Admin Portal</h1>
+        <p className="muted">Enter authorization passcode to access dashboard</p>
+        <form className="stack" onSubmit={handleSubmit}>
+          <label>
+            Passcode
+            <input 
+              type="password" 
+              value={localPasscode} 
+              onChange={(event) => setLocalPasscode(event.target.value)} 
+              placeholder="Enter passcode" 
+            />
+          </label>
+          <button type="submit">
+            <ShieldCheck size={18} />
+            Unlock Dashboard
+          </button>
+        </form>
+        {error ? <p className="error">{error}</p> : null}
+        <Link className="link-button" href="/verify">Back to customer verification</Link>
+      </section>
+    </main>
+  );
+}
+
+function AdminLayout({ children, passcode, setPasscode, currentPath }) {
+  const handleLogout = () => {
+    localStorage.removeItem(ADMIN_KEY);
+    setPasscode('');
+    window.history.pushState(null, '', '/admin');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const isLinkActive = (href) => {
+    return currentPath === href;
+  };
 
   return (
     <main className="admin-shell">
@@ -196,22 +301,18 @@ function AdminLayout({ children, passcode, setPasscode }) {
           <strong>QR Verify MVP</strong>
         </div>
         <nav>
-          <a href="/admin">Dashboard</a>
-          <a href="/admin/batches">Batches</a>
-          <a href="/admin/generate">Generate</a>
-          <a href="/admin/codes">Codes</a>
-          <a href="/admin/logs">Scan logs</a>
+          <Link href="/admin" className={isLinkActive('/admin') ? 'active' : ''}>Dashboard</Link>
+          <Link href="/admin/batches" className={isLinkActive('/admin/batches') ? 'active' : ''}>Batches</Link>
+          <Link href="/admin/generate" className={isLinkActive('/admin/generate') ? 'active' : ''}>Generate</Link>
+          <Link href="/admin/codes" className={isLinkActive('/admin/codes') ? 'active' : ''}>Codes</Link>
+          <Link href="/admin/logs" className={isLinkActive('/admin/logs') ? 'active' : ''}>Scan logs</Link>
         </nav>
-        <form className="passcode-form" onSubmit={savePasscode}>
-          <label>
-            Admin passcode
-            <input type="password" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="ADMIN_PASSCODE" />
-          </label>
-          <button type="submit">
-            <KeyRound size={16} />
-            Save
+        <div className="logout-box">
+          <button onClick={handleLogout} className="small danger outline-btn">
+            <Lock size={16} />
+            Lock Dashboard
           </button>
-        </form>
+        </div>
       </aside>
       <section className="admin-content">{children}</section>
     </main>
@@ -288,6 +389,22 @@ function BatchesPage({ passcode }) {
     if (passcode) load();
   }, [passcode]);
 
+  async function downloadBatchCsv(batchId) {
+    setError('');
+    try {
+      const data = await request(`/api/admin/codes?batchId=${batchId}`, {
+        headers: adminHeaders(passcode)
+      });
+      if (data.length === 0) {
+        alert('No codes have been generated for this batch yet.');
+        return;
+      }
+      downloadCsv(data);
+    } catch (err) {
+      setError('Failed to download batch CSV: ' + err.message);
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     setError('');
@@ -334,9 +451,20 @@ function BatchesPage({ passcode }) {
         </button>
       </form>
       <DataTable
-        columns={['productName', 'batchNumber', 'manufactureDate', 'expiryDate', 'createdAt']}
+        columns={['productName', 'batchNumber', 'manufactureDate', 'expiryDate', 'createdAt', 'actions']}
         rows={batches}
-        renderCell={(row, column) => (column === 'createdAt' ? formatDateTime(row[column]) : row[column])}
+        renderCell={(row, column) => {
+          if (column === 'createdAt') return formatDateTime(row[column]);
+          if (column === 'actions') {
+            return (
+              <button className="small" type="button" onClick={() => downloadBatchCsv(row.id)}>
+                <Download size={14} />
+                CSV
+              </button>
+            );
+          }
+          return row[column];
+        }}
       />
     </>
   );
@@ -348,6 +476,7 @@ function GeneratePage({ passcode }) {
   const [quantity, setQuantity] = useState(10);
   const [generated, setGenerated] = useState([]);
   const [error, setError] = useState('');
+  const [showQrCodes, setShowQrCodes] = useState(false);
 
   useEffect(() => {
     if (!passcode) return;
@@ -363,6 +492,7 @@ function GeneratePage({ passcode }) {
     event.preventDefault();
     setError('');
     setGenerated([]);
+    setShowQrCodes(false);
     try {
       const data = await request('/api/admin/generate-codes', {
         method: 'POST',
@@ -405,6 +535,26 @@ function GeneratePage({ passcode }) {
             <Download size={18} />
             Download CSV
           </button>
+          <button type="button" onClick={() => setShowQrCodes(!showQrCodes)}>
+            <QrCode size={18} />
+            {showQrCodes ? 'Hide' : 'View'} QR Codes
+          </button>
+          {showQrCodes ? (
+            <button type="button" onClick={() => window.print()}>
+              <Printer size={18} />
+              Print Labels
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {showQrCodes && generated.length > 0 ? (
+        <div className="qr-grid">
+          {generated.map((code) => (
+            <div key={code.id} className="qr-item">
+              <QRCode value={code.verificationUrl} size={256} level="H" includeMargin={true} />
+              <p className="qr-serial">{code.serialCode}</p>
+            </div>
+          ))}
         </div>
       ) : null}
       <DataTable columns={['serialCode', 'verificationUrl', 'batchNumber', 'productName']} rows={generated} />
@@ -493,11 +643,27 @@ function LogsPage({ passcode }) {
       </div>
       {error ? <p className="error">{error}</p> : null}
       <DataTable
-        columns={['serialCode', 'batchNumber', 'result', 'reason', 'createdAt']}
+        columns={['serialCode', 'batchNumber', 'result', 'reason', 'location', 'createdAt']}
         rows={logs}
         renderCell={(row, column) => {
           if (column === 'result') return <Badge result={row.result} />;
           if (column === 'createdAt') return formatDateTime(row.createdAt);
+          if (column === 'location') {
+            if (!row.location) return '-';
+            const lat = row.location.latitude;
+            const lon = row.location.longitude;
+            return (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="location-link"
+              >
+                <MapPin size={14} />
+                {lat.toFixed(4)}, {lon.toFixed(4)}
+              </a>
+            );
+          }
           return row[column] || '-';
         }}
       />
@@ -539,32 +705,46 @@ function DataTable({ columns, rows, renderCell }) {
 }
 
 function App() {
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [passcode, setPasscode] = useState(localStorage.getItem(ADMIN_KEY) || '');
-  const path = window.location.pathname;
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   const page = useMemo(() => {
-    if (path.startsWith('/verify/') && path.split('/')[2]) {
-      return <TokenVerifyPage token={path.split('/')[2]} />;
+    if (currentPath.startsWith('/verify/') && currentPath.split('/')[2]) {
+      return <TokenVerifyPage token={currentPath.split('/')[2]} />;
     }
 
-    if (path === '/verify') return <ManualVerifyPage />;
+    if (currentPath === '/verify') return <ManualVerifyPage />;
 
-    if (path.startsWith('/admin')) {
+    if (currentPath.startsWith('/admin')) {
+      if (!passcode) {
+        return <AdminLogin setPasscode={setPasscode} />;
+      }
+
       let content = <AdminHome passcode={passcode} />;
-      if (path === '/admin/batches') content = <BatchesPage passcode={passcode} />;
-      if (path === '/admin/generate') content = <GeneratePage passcode={passcode} />;
-      if (path === '/admin/codes') content = <CodesPage passcode={passcode} />;
-      if (path === '/admin/logs') content = <LogsPage passcode={passcode} />;
+      if (currentPath === '/admin/batches') content = <BatchesPage passcode={passcode} />;
+      if (currentPath === '/admin/generate') content = <GeneratePage passcode={passcode} />;
+      if (currentPath === '/admin/codes') content = <CodesPage passcode={passcode} />;
+      if (currentPath === '/admin/logs') content = <LogsPage passcode={passcode} />;
 
       return (
-        <AdminLayout passcode={passcode} setPasscode={setPasscode}>
-          {!passcode ? <p className="notice">Enter the admin passcode saved in ADMIN_PASSCODE to use the dashboard.</p> : content}
+        <AdminLayout passcode={passcode} setPasscode={setPasscode} currentPath={currentPath}>
+          {content}
         </AdminLayout>
       );
     }
 
     return <ManualVerifyPage />;
-  }, [path, passcode]);
+  }, [currentPath, passcode]);
 
   return page;
 }

@@ -412,3 +412,180 @@ td {
     padding: 20px;
   }
 }
+
+.qr-grid {
+  background: #fff;
+  border: 1px solid #dce3e8;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  margin-bottom: 22px;
+  padding: 24px;
+}
+
+.qr-item {
+  align-items: center;
+  background: #f5f7f9;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.qr-item canvas {
+  border: 1px solid #dce3e8;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.qr-serial {
+  color: #26333d;
+  font-family: monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.location-cell {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.location-cell svg {
+  flex-shrink: 0;
+}
+
+/* Premium UI Enhancements */
+.sidebar a.active {
+  background: #116466;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(17, 100, 102, 0.4);
+}
+
+.location-link {
+  align-items: center;
+  color: #116466;
+  display: inline-flex;
+  gap: 6px;
+  font-size: 0.9rem;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.location-link:hover {
+  text-decoration: underline;
+  color: #0b4344;
+}
+
+button {
+  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+button.outline-btn {
+  background: transparent;
+  border: 1px solid #9f2d2d;
+  color: #9f2d2d;
+}
+
+button.outline-btn:hover:not(:disabled) {
+  background: rgba(159, 45, 45, 0.08);
+}
+
+.metric-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(31, 41, 51, 0.1);
+}
+
+.auth-panel {
+  max-width: 440px !important;
+}
+
+.logout-box {
+  margin-top: auto;
+  border-top: 1px solid #3c4852;
+  padding-top: 18px;
+}
+
+.logout-box button {
+  width: 100%;
+}
+
+/* Print Stylesheet for QR Label Sheet Generation */
+@media print {
+  /* Hide UI elements that shouldn't appear on standard sheets */
+  .sidebar,
+  .page-header,
+  .inline-form,
+  .table-actions,
+  .table-wrap,
+  .error,
+  .notice,
+  .link-button {
+    display: none !important;
+  }
+
+  /* Reset layout of standard body container */
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .admin-shell {
+    display: block !important;
+    min-height: auto !important;
+  }
+
+  .admin-content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Grid configuration for QR sheet printing */
+  .qr-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 20px !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .qr-item {
+    background: #fff !important;
+    border: 1px dashed #bbb !important;
+    border-radius: 4px !important;
+    padding: 12px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .qr-item canvas {
+    border: none !important;
+    padding: 0 !important;
+    width: 150px !important;
+    height: 150px !important;
+  }
+
+  .qr-serial {
+    font-size: 0.8rem !important;
+    margin-top: 4px !important;
+  }
+}
+
+

@@ -32,22 +32,23 @@ function codeBatchInfo(code) {
   };
 }
 
-async function logScan(db, codeDoc, code, result, reason) {
+async function logScan(db, codeDoc, code, result, reason, location) {
   await db.collection('scanLogs').add({
     codeId: codeDoc?.id || null,
     serialCode: code?.serialCode || null,
     batchNumber: code?.batchNumber || null,
     result,
     reason,
+    location: location || null,
     createdAt: FieldValue.serverTimestamp()
   });
 }
 
-async function verifyCodeSnapshot(codeDoc, reasonPrefix = 'Code') {
+async function verifyCodeSnapshot(codeDoc, reasonPrefix = 'Code', location) {
   const db = getDb();
 
   if (!codeDoc || !codeDoc.exists) {
-    await logScan(db, null, null, 'INVALID', 'Code was not found.');
+    await logScan(db, null, null, 'INVALID', 'Code was not found.', location);
     return {
       result: 'INVALID',
       message: resultCopy.INVALID,
@@ -71,7 +72,7 @@ async function verifyCodeSnapshot(codeDoc, reasonPrefix = 'Code') {
     scanCount: FieldValue.increment(1),
     lastScannedAt: FieldValue.serverTimestamp()
   });
-  await logScan(db, codeDoc, code, result, reason);
+  await logScan(db, codeDoc, code, result, reason, location);
 
   return {
     result,
@@ -91,6 +92,20 @@ router.get('/health', (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/verify/:token', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const tokenHash = hashToken(req.params.token);
+    const snapshot = await db.collection('codes').where('tokenHash', '==', tokenHash).limit(1).get();
+    const codeDoc = snapshot.empty ? null : snapshot.docs[0];
+    const response = await verifyCodeSnapshot(codeDoc, 'QR code', req.body.location);
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Keep GET endpoint for backwards compatibility
 router.get('/verify/:token', async (req, res, next) => {
   try {
     const db = getDb();
@@ -115,7 +130,7 @@ router.post('/verify-serial', async (req, res, next) => {
     const db = getDb();
     const snapshot = await db.collection('codes').where('serialCode', '==', serialCode).limit(1).get();
     const codeDoc = snapshot.empty ? null : snapshot.docs[0];
-    const response = await verifyCodeSnapshot(codeDoc, 'Serial code');
+    const response = await verifyCodeSnapshot(codeDoc, 'Serial code', req.body.location);
     res.json(response);
   } catch (error) {
     next(error);
@@ -219,8 +234,15 @@ router.post('/admin/generate-codes', requireAdmin, async (req, res, next) => {
 router.get('/admin/codes', requireAdmin, async (req, res, next) => {
   try {
     const db = getDb();
-    const snapshot = await db.collection('codes').orderBy('createdAt', 'desc').limit(500).get();
-    res.json(snapshot.docs.map(serializeDoc));
+    const { batchId } = req.query;
+    
+    if (batchId) {
+      const snapshot = await db.collection('codes').where('batchId', '==', batchId).get();
+      res.json(snapshot.docs.map(serializeDoc));
+    } else {
+      const snapshot = await db.collection('codes').orderBy('createdAt', 'desc').limit(500).get();
+      res.json(snapshot.docs.map(serializeDoc));
+    }
   } catch (error) {
     next(error);
   }
