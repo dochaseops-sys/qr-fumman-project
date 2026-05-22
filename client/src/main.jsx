@@ -99,6 +99,95 @@ function downloadCsv(rows) {
   URL.revokeObjectURL(url);
 }
 
+function computeScanStats(logs) {
+  const stats = { total: 0, genuine: 0, suspicious: 0, invalid: 0, locationCount: 0 };
+  const locations = new Set();
+
+  logs.forEach((log) => {
+    stats.total += 1;
+    const result = String(log.result || '').toUpperCase();
+    if (result === 'GENUINE') stats.genuine += 1;
+    if (result === 'SUSPICIOUS') stats.suspicious += 1;
+    if (result === 'INVALID') stats.invalid += 1;
+
+    const latitude = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+    const longitude = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      locations.add(`${latitude.toFixed(4)}|${longitude.toFixed(4)}`);
+    }
+  });
+
+  stats.locationCount = locations.size;
+  return stats;
+}
+
+function normalizeScanLocations(logs) {
+  const locationCounts = {};
+
+  logs.forEach((log) => {
+    const latitude = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+    const longitude = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
+
+    const key = `${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
+    locationCounts[key] = (locationCounts[key] || 0) + 1;
+  });
+
+  const points = Object.entries(locationCounts).map(([key, count]) => {
+    const [latitude, longitude] = key.split('|').map(Number);
+    return { latitude, longitude, count };
+  });
+
+  if (points.length === 0) return [];
+
+  const minLat = Math.min(...points.map((point) => point.latitude));
+  const maxLat = Math.max(...points.map((point) => point.latitude));
+  const minLon = Math.min(...points.map((point) => point.longitude));
+  const maxLon = Math.max(...points.map((point) => point.longitude));
+  const latRange = Math.max(maxLat - minLat, 0.0001);
+  const lonRange = Math.max(maxLon - minLon, 0.0001);
+  const padding = 24;
+  const width = 560;
+  const height = 260;
+
+  return points.map((point) => ({
+    ...point,
+    x: padding + ((point.longitude - minLon) / lonRange) * (width - padding * 2),
+    y: padding + ((maxLat - point.latitude) / latRange) * (height - padding * 2),
+    radius: Math.min(16, 6 + Math.log(point.count + 1) * 4)
+  }));
+}
+
+function ScanHeatmap({ logs }) {
+  const points = normalizeScanLocations(logs);
+
+  if (points.length === 0) {
+    return <div className="heatmap-empty">No location data is available yet. Scan a code from a device with geolocation enabled to populate the heatmap.</div>;
+  }
+
+  return (
+    <div className="heatmap-card">
+      <svg viewBox="0 0 560 260" className="heatmap-chart" aria-label="Scan location heatmap">
+        <defs>
+          <radialGradient id="heat" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#ff7a59" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="#ff7a59" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <rect x="0" y="0" width="560" height="260" fill="#f5f7f9" rx="18" />
+        {points.map((point, index) => (
+          <circle key={`${point.latitude}-${point.longitude}-${index}`} cx={point.x} cy={point.y} r={point.radius} fill="url(#heat)" />
+        ))}
+      </svg>
+      <div className="heatmap-legend">
+        {logs.length} recent scans · {points.length} unique locations
+      </div>
+    </div>
+  );
+}
+
 function Badge({ result, children }) {
   return <span className={`badge ${String(result || '').toLowerCase()}`}>{children || result}</span>;
 }
@@ -321,6 +410,8 @@ function AdminLayout({ children, passcode, setPasscode, currentPath }) {
 
 function AdminHome({ passcode }) {
   const [counts, setCounts] = useState({ batches: 0, codes: 0, logs: 0 });
+  const [scanLogs, setScanLogs] = useState([]);
+  const [scanStats, setScanStats] = useState({ total: 0, genuine: 0, suspicious: 0, invalid: 0, locationCount: 0 });
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -328,9 +419,19 @@ function AdminHome({ passcode }) {
     Promise.all([
       request('/api/admin/batches', { headers: adminHeaders(passcode) }),
       request('/api/admin/codes', { headers: adminHeaders(passcode) }),
-      request('/api/admin/scan-logs', { headers: adminHeaders(passcode) })
+      request('/api/admin/scan-summary', { headers: adminHeaders(passcode) })
     ])
-      .then(([batches, codes, logs]) => setCounts({ batches: batches.length, codes: codes.length, logs: logs.length }))
+      .then(([batches, codes, summary]) => {
+        setCounts({ batches: batches.length, codes: codes.length, logs: summary.total });
+        setScanLogs(summary.logs || []);
+        setScanStats({
+          total: summary.total,
+          genuine: summary.genuine,
+          suspicious: summary.suspicious,
+          invalid: summary.invalid,
+          locationCount: summary.locationCount
+        });
+      })
       .catch((err) => setError(err.message));
   }, [passcode]);
 
@@ -342,6 +443,19 @@ function AdminHome({ passcode }) {
         <Metric label="Batches" value={counts.batches} />
         <Metric label="Codes" value={counts.codes} />
         <Metric label="Scan logs" value={counts.logs} />
+        <Metric label="Scan locations" value={scanStats.locationCount} />
+      </div>
+      <div className="cards overview-cards">
+        <Metric label="Genuine scans" value={scanStats.genuine} />
+        <Metric label="Suspicious scans" value={scanStats.suspicious} />
+        <Metric label="Invalid scans" value={scanStats.invalid} />
+      </div>
+      <div className="heatmap-section">
+        <div className="heatmap-intro">
+          <h2>Scan activity overview</h2>
+          <p className="muted">This dashboard shows recent scan counts and geolocation distribution from verified devices.</p>
+        </div>
+        <ScanHeatmap logs={scanLogs} />
       </div>
       <div className="demo-flow">
         <h2>Demo flow</h2>
@@ -650,17 +764,18 @@ function LogsPage({ passcode }) {
           if (column === 'createdAt') return formatDateTime(row.createdAt);
           if (column === 'location') {
             if (!row.location) return '-';
-            const lat = row.location.latitude;
-            const lon = row.location.longitude;
+            const latitude = row.location.latitude ?? row.location._latitude ?? row.location.lat;
+            const longitude = row.location.longitude ?? row.location._longitude ?? row.location.lng;
+            if (typeof latitude !== 'number' || typeof longitude !== 'number') return '-';
             return (
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="location-link"
               >
                 <MapPin size={14} />
-                {lat.toFixed(4)}, {lon.toFixed(4)}
+                {latitude.toFixed(4)}, {longitude.toFixed(4)}
               </a>
             );
           }

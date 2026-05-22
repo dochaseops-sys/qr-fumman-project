@@ -288,6 +288,56 @@ dd {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.overview-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.heatmap-section {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.heatmap-intro {
+  background: #fff;
+  border: 1px solid #dce3e8;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
+  padding: 20px 24px;
+}
+
+.heatmap-card {
+  background: #fff;
+  border: 1px solid #dce3e8;
+  border-radius: 18px;
+  box-shadow: 0 8px 22px rgba(31, 41, 51, 0.06);
+  overflow: hidden;
+  padding: 20px;
+}
+
+.heatmap-chart {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.heatmap-legend {
+  color: #52616f;
+  font-size: 0.95rem;
+  margin-top: 14px;
+}
+
+.heatmap-empty {
+  background: #fff;
+  border: 1px dashed #d8e2e8;
+  border-radius: 12px;
+  color: #657380;
+  min-height: 140px;
+  padding: 26px;
+  text-align: center;
+}
+
 .metric-card,
 .demo-flow,
 .form-grid,

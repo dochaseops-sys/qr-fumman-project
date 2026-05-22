@@ -32,6 +32,35 @@ function codeBatchInfo(code) {
   };
 }
 
+function computeScanSummary(logs) {
+  const summary = {
+    total: 0,
+    genuine: 0,
+    suspicious: 0,
+    invalid: 0,
+    locationCount: 0
+  };
+  const locations = new Set();
+
+  logs.forEach((log) => {
+    summary.total += 1;
+    const result = String(log.result || '').toUpperCase();
+    if (result === 'GENUINE') summary.genuine += 1;
+    else if (result === 'SUSPICIOUS') summary.suspicious += 1;
+    else if (result === 'INVALID') summary.invalid += 1;
+
+    const latitude = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+    const longitude = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      locations.add(`${latitude.toFixed(4)}|${longitude.toFixed(4)}`);
+    }
+  });
+
+  summary.locationCount = locations.size;
+  return summary;
+}
+
 async function logScan(db, codeDoc, code, result, reason, location) {
   await db.collection('scanLogs').add({
     codeId: codeDoc?.id || null,
@@ -243,6 +272,18 @@ router.get('/admin/codes', requireAdmin, async (req, res, next) => {
       const snapshot = await db.collection('codes').orderBy('createdAt', 'desc').limit(500).get();
       res.json(snapshot.docs.map(serializeDoc));
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/scan-summary', requireAdmin, async (req, res, next) => {
+  try {
+    const db = getDb();
+    const snapshot = await db.collection('scanLogs').orderBy('createdAt', 'desc').limit(500).get();
+    const logs = snapshot.docs.map(serializeDoc);
+    const summary = computeScanSummary(logs);
+    res.json({ ...summary, logs });
   } catch (error) {
     next(error);
   }
