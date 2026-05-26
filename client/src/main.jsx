@@ -1,6 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Ban, Download, FlaskConical, KeyRound, MapPin, Plus, QrCode, RefreshCw, Search, ShieldCheck, Lock, Printer } from 'lucide-react';
+import { 
+  Ban, Download, Plus, QrCode, RefreshCw, Search, ShieldCheck, 
+  Lock, Printer, BarChart3, Database, FileText, ChevronRight,
+  TrendingUp, Activity, MapPin, Globe, AlertTriangle, LogOut, CheckCircle2,
+  Calendar, Layers, Cpu, Compass
+} from 'lucide-react';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import './styles.css';
 
@@ -150,7 +155,7 @@ function normalizeScanLocations(logs) {
   const lonRange = Math.max(maxLon - minLon, 0.0001);
   const padding = 24;
   const width = 560;
-  const height = 260;
+  const height = 240;
 
   return points.map((point) => ({
     ...point,
@@ -161,28 +166,106 @@ function normalizeScanLocations(logs) {
 }
 
 function ScanHeatmap({ logs }) {
-  const points = normalizeScanLocations(logs);
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+
+  const points = useMemo(() => {
+    const list = [];
+    logs.forEach((log) => {
+      const lat = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+      const lng = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        list.push({ lat, lng, serial: log.serialCode, result: log.result, time: log.createdAt });
+      }
+    });
+    return list;
+  }, [logs]);
+
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (!mapContainerRef.current) return;
+    if (!window.L) {
+      console.error('Leaflet is not loaded.');
+      return;
+    }
+
+    const defaultCenter = points.length > 0 ? [points[0].lat, points[0].lng] : [54.5, -2.0];
+    const defaultZoom = points.length > 0 ? 6 : 5;
+
+    const map = window.L.map(mapContainerRef.current, {
+      center: defaultCenter,
+      zoom: defaultZoom,
+      zoomControl: true
+    });
+
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    mapInstanceRef.current = map;
+
+    points.forEach((pt) => {
+      let markerColor = '#10b981'; // Genuine
+      if (pt.result === 'SUSPICIOUS') markerColor = '#f59e0b';
+      if (pt.result === 'INVALID') markerColor = '#ef4444';
+
+      const markerHtml = `
+        <div style="
+          background-color: ${markerColor};
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          border: 2px solid white;
+          box-shadow: 0 0 4px rgba(0,0,0,0.4);
+        "></div>
+      `;
+
+      const customIcon = window.L.divIcon({
+        html: markerHtml,
+        className: 'custom-map-marker',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+      });
+
+      const marker = window.L.marker([pt.lat, pt.lng], { icon: customIcon }).addTo(map);
+      marker.bindPopup(`
+        <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.8rem; line-height: 1.4;">
+          <strong style="display: block; font-size: 0.85rem; margin-bottom: 4px;">Code: ${pt.serial}</strong>
+          <span style="display: inline-block; padding: 2px 6px; border-radius: 99px; font-size: 0.7rem; font-weight: 700; color: white; background-color: ${markerColor}; text-transform: uppercase;">
+            ${pt.result}
+          </span>
+          <div style="color: #64748b; margin-top: 6px; font-size: 0.75rem;">
+            ${formatDateTime(pt.time)}
+          </div>
+        </div>
+      `);
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(mapContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, [points]);
 
   if (points.length === 0) {
-    return <div className="heatmap-empty">No location data is available yet. Scan a code from a device with geolocation enabled to populate the heatmap.</div>;
+    return <div className="heatmap-empty">No scan logs with location coordinates are available for this period.</div>;
   }
 
   return (
-    <div className="heatmap-card">
-      <svg viewBox="0 0 560 260" className="heatmap-chart" aria-label="Scan location heatmap">
-        <defs>
-          <radialGradient id="heat" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#ff7a59" stopOpacity="0.85" />
-            <stop offset="100%" stopColor="#ff7a59" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <rect x="0" y="0" width="560" height="260" fill="#f5f7f9" rx="18" />
-        {points.map((point, index) => (
-          <circle key={`${point.latitude}-${point.longitude}-${index}`} cx={point.x} cy={point.y} r={point.radius} fill="url(#heat)" />
-        ))}
-      </svg>
-      <div className="heatmap-legend">
-        {logs.length} recent scans · {points.length} unique locations
+    <div className="heatmap-card" style={{ padding: '12px' }}>
+      <div 
+        ref={mapContainerRef} 
+        className="leaflet-map-container"
+        style={{ height: '260px', width: '100%', borderRadius: '10px', zIndex: 1 }}
+      />
+      <div className="heatmap-legend" style={{ marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Showing {points.length} verification events on the live map
       </div>
     </div>
   );
@@ -199,8 +282,8 @@ function PublicShell({ children }) {
         <div className="brand-mark">
           <ShieldCheck size={30} />
         </div>
-        <h1>Company Product Verification</h1>
-        <p className="muted">Water Purification Chemical authenticity check</p>
+        <h1>Product Authenticity Check</h1>
+        <p className="muted">Verify your Water Purification Chemical authenticity</p>
         {children}
       </section>
     </main>
@@ -210,34 +293,46 @@ function PublicShell({ children }) {
 function ResultView({ result }) {
   if (!result) return null;
 
+  const isGenuine = result.result === 'GENUINE';
+  const isSuspicious = result.result === 'SUSPICIOUS';
+
   return (
     <div className="result-box">
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+        {isGenuine ? (
+          <CheckCircle2 size={54} color="var(--success)" />
+        ) : (
+          <AlertTriangle size={54} color={isSuspicious ? 'var(--warning)' : 'var(--danger)'} />
+        )}
+      </div>
       <Badge result={result.result} />
       <p className="result-message">{result.message}</p>
+      
       {result.code ? (
         <dl className="product-details">
           <div>
-            <dt>Product</dt>
+            <dt>Product Name</dt>
             <dd>{result.code.productName}</dd>
           </div>
           <div>
-            <dt>Batch</dt>
+            <dt>Batch Number</dt>
             <dd>{result.code.batchNumber}</dd>
           </div>
           <div>
             <dt>Manufactured</dt>
-            <dd>{result.code.manufactureDate || 'Not provided'}</dd>
+            <dd>{result.code.manufactureDate ? formatDateTime(result.code.manufactureDate) : 'Not provided'}</dd>
           </div>
           <div>
             <dt>Expires</dt>
-            <dd>{result.code.expiryDate || 'Not provided'}</dd>
+            <dd>{result.code.expiryDate ? formatDateTime(result.code.expiryDate) : 'Not provided'}</dd>
           </div>
         </dl>
       ) : null}
+      
       <p className="instruction">
-        {result.result === 'GENUINE'
-          ? 'Confirm the keg seal is intact before use.'
-          : 'Pause use and contact the company for confirmation.'}
+        {isGenuine
+          ? 'Confirm the batch seal is fully intact and has not been tampered with before usage.'
+          : 'Do not use this product. Report this scan to your distributor or contact customer support.'}
       </p>
     </div>
   );
@@ -275,7 +370,7 @@ function TokenVerifyPage({ token }) {
 
   return (
     <PublicShell>
-      {state.loading ? <p className="muted spacious">Checking code...</p> : null}
+      {state.loading ? <p className="muted spacious">Checking verification token...</p> : null}
       {state.error ? <p className="error">{state.error}</p> : null}
       <ResultView result={state.result} />
       <Link className="link-button" href="/verify">Enter serial manually</Link>
@@ -312,12 +407,16 @@ function ManualVerifyPage() {
     <PublicShell>
       <form className="stack" onSubmit={submit}>
         <label>
-          Serial code
-          <input value={serialCode} onChange={(event) => setSerialCode(event.target.value)} placeholder="WPC001-00001-ABC123" />
+          Serial Code
+          <input 
+            value={serialCode} 
+            onChange={(event) => setSerialCode(event.target.value)} 
+            placeholder="WPC001-00001-ABC123" 
+          />
         </label>
         <button type="submit" disabled={loading}>
           <Search size={18} />
-          {loading ? 'Checking' : 'Verify serial'}
+          {loading ? 'Verifying...' : 'Verify Product'}
         </button>
       </form>
       {error ? <p className="error">{error}</p> : null}
@@ -347,30 +446,33 @@ function AdminLogin({ setPasscode }) {
           <KeyRound size={30} />
         </div>
         <h1>Admin Portal</h1>
-        <p className="muted">Enter authorization passcode to access dashboard</p>
+        <p className="muted">Authorize with passcode to manage verification dashboard</p>
         <form className="stack" onSubmit={handleSubmit}>
           <label>
-            Passcode
+            Dashboard Passcode
             <input 
               type="password" 
               value={localPasscode} 
               onChange={(event) => setLocalPasscode(event.target.value)} 
-              placeholder="Enter passcode" 
+              placeholder="Enter admin passcode" 
             />
           </label>
           <button type="submit">
-            <ShieldCheck size={18} />
-            Unlock Dashboard
+            <Lock size={18} />
+            Unlock Console
           </button>
         </form>
         {error ? <p className="error">{error}</p> : null}
-        <Link className="link-button" href="/verify">Back to customer verification</Link>
+        <Link className="link-button" href="/verify">Return to manual verification</Link>
       </section>
     </main>
   );
 }
 
 function AdminLayout({ children, passcode, setPasscode, currentPath }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
   const handleLogout = () => {
     localStorage.removeItem(ADMIN_KEY);
     setPasscode('');
@@ -382,39 +484,516 @@ function AdminLayout({ children, passcode, setPasscode, currentPath }) {
     return currentPath === href;
   };
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const clickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', clickOutside);
+    return () => document.removeEventListener('mousedown', clickOutside);
+  }, []);
+
   return (
     <main className="admin-shell">
-      <aside className="sidebar">
-        <div className="sidebar-title">
-          <QrCode size={24} />
-          <strong>QR Verify MVP</strong>
+      {/* Top Header Navigation */}
+      <header className="admin-navbar">
+        <div className="navbar-left">
+          <div className="navbar-brand">
+            <ShieldCheck size={22} />
+            <span>Fumman Control</span>
+          </div>
+          <nav className="navbar-nav">
+            <Link href="/admin" className={`navbar-link ${isLinkActive('/admin') ? 'active' : ''}`}>
+              Dashboard
+            </Link>
+            <Link href="/admin/batches" className={`navbar-link ${isLinkActive('/admin/batches') ? 'active' : ''}`}>
+              Batches
+            </Link>
+            <Link href="/admin/generate" className={`navbar-link ${isLinkActive('/admin/generate') ? 'active' : ''}`}>
+              Generate
+            </Link>
+            <Link href="/admin/codes" className={`navbar-link ${isLinkActive('/admin/codes') ? 'active' : ''}`}>
+              Codes
+            </Link>
+            <Link href="/admin/logs" className={`navbar-link ${isLinkActive('/admin/logs') ? 'active' : ''}`}>
+              Scan Logs
+            </Link>
+          </nav>
         </div>
-        <nav>
-          <Link href="/admin" className={isLinkActive('/admin') ? 'active' : ''}>Dashboard</Link>
-          <Link href="/admin/batches" className={isLinkActive('/admin/batches') ? 'active' : ''}>Batches</Link>
-          <Link href="/admin/generate" className={isLinkActive('/admin/generate') ? 'active' : ''}>Generate</Link>
-          <Link href="/admin/codes" className={isLinkActive('/admin/codes') ? 'active' : ''}>Codes</Link>
-          <Link href="/admin/logs" className={isLinkActive('/admin/logs') ? 'active' : ''}>Scan logs</Link>
-        </nav>
-        <div className="logout-box">
-          <button onClick={handleLogout} className="small danger outline-btn">
-            <Lock size={16} />
-            Lock Dashboard
-          </button>
+        
+        <div className="navbar-right">
+          <div className="navbar-search">
+            <Search size={14} />
+            <input type="text" placeholder="Quick search..." />
+          </div>
+          
+          <div className="navbar-user-dropdown" ref={dropdownRef}>
+            <button className="avatar-button" onClick={() => setDropdownOpen(!dropdownOpen)}>
+              AD
+            </button>
+            
+            {dropdownOpen && (
+              <div className="dropdown-menu">
+                <div className="dropdown-header">
+                  <p>Administrator</p>
+                  <span>admin@fumman.com</span>
+                </div>
+                <button className="dropdown-item" onClick={() => { setDropdownOpen(false); window.location.reload(); }}>
+                  <RefreshCw size={14} />
+                  Refresh Server
+                </button>
+                <button className="dropdown-item danger" onClick={handleLogout}>
+                  <LogOut size={14} />
+                  Lock Dashboard
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </aside>
+      </header>
+
+      {/* Environment Status bar */}
+      <div className="env-status-bar">
+        <div className="status-left">
+          <span className="status-indicator"></span>
+        </div>
+        <div className="status-right">
+          <Link href="/verify" className="status-btn">
+            View Public Site
+          </Link>
+        </div>
+      </div>
+
       <section className="admin-content">{children}</section>
     </main>
   );
 }
 
-function AdminHome({ passcode }) {
-  const [counts, setCounts] = useState({ batches: 0, codes: 0, logs: 0 });
-  const [scanLogs, setScanLogs] = useState([]);
-  const [scanStats, setScanStats] = useState({ total: 0, genuine: 0, suspicious: 0, invalid: 0, locationCount: 0 });
-  const [error, setError] = useState('');
+// Custom SVG Line Chart
+function ScanTrendChart({ filteredLogs }) {
+  const chartData = useMemo(() => {
+    const dates = [];
+    const counts = [];
+    const uniqueSerials = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      dates.push(d);
+      
+      const dayLogs = filteredLogs.filter(log => {
+        const logDate = new Date(log.createdAt).toISOString().split('T')[0];
+        return logDate === dateStr;
+      });
+      
+      counts.push(dayLogs.length);
+      
+      const serials = new Set(dayLogs.map(l => l.serialCode).filter(Boolean));
+      uniqueSerials.push(serials.size);
+    }
+    
+    return { dates, counts, uniqueSerials };
+  }, [filteredLogs]);
+
+  const maxVal = Math.max(...chartData.counts, ...chartData.uniqueSerials, 5);
+  
+  const width = 440;
+  const height = 240;
+  const paddingLeft = 32;
+  const paddingRight = 10;
+  const paddingTop = 10;
+  const paddingBottom = 25;
+  
+  const chartW = width - paddingLeft - paddingRight;
+  const chartH = height - paddingTop - paddingBottom;
+  
+  const points = chartData.counts.map((val, i) => {
+    const x = paddingLeft + (i / 6) * chartW;
+    const y = paddingTop + chartH - (val / maxVal) * chartH;
+    return { x, y };
+  });
+
+  const uniquePoints = chartData.uniqueSerials.map((val, i) => {
+    const x = paddingLeft + (i / 6) * chartW;
+    const y = paddingTop + chartH - (val / maxVal) * chartH;
+    return { x, y };
+  });
+  
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const areaPath = points.length > 0 
+    ? `${linePath} L ${points[points.length-1].x} ${paddingTop + chartH} L ${points[0].x} ${paddingTop + chartH} Z`
+    : '';
+
+  const uniqueLinePath = uniquePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  const formatDay = (dateObj) => {
+    return dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div className="chart-container-inner">
+      <svg viewBox={`0 0 ${width} ${height}`} className="svg-line-chart">
+        <defs>
+          <linearGradient id="blue-gradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.25"/>
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.0"/>
+          </linearGradient>
+        </defs>
+        
+        {/* Horizontal grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((r, idx) => {
+          const y = paddingTop + chartH * r;
+          const valLabel = Math.round(maxVal * (1 - r));
+          return (
+            <g key={idx} className="svg-chart-grid">
+              <line x1={paddingLeft} y1={y} x2={width - paddingRight} y2={y} />
+              <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="svg-chart-axis-label">
+                {valLabel}
+              </text>
+            </g>
+          );
+        })}
+        
+        {/* Shaded Area */}
+        {areaPath && <path d={areaPath} className="svg-area-primary" />}
+        
+        {/* Scan count line */}
+        {linePath && <path d={linePath} className="svg-line-primary" />}
+        
+        {/* Unique serials line */}
+        {uniqueLinePath && (
+          <path 
+            d={uniqueLinePath} 
+            fill="none" 
+            stroke="var(--success)" 
+            strokeWidth="2" 
+            strokeDasharray="4 3" 
+            strokeLinecap="round"
+          />
+        )}
+        
+        {/* Scan points */}
+        {points.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r="3.5" className="svg-line-point" />
+        ))}
+        
+        {/* X Axis Labels */}
+        {chartData.dates.map((d, i) => {
+          const x = paddingLeft + (i / 6) * chartW;
+          return (
+            <text 
+              key={i} 
+              x={x} 
+              y={height - 2} 
+              textAnchor="middle" 
+              className="svg-chart-axis-label"
+              style={{ fontSize: '8px' }}
+            >
+              {formatDay(d)}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// Custom SVG Doughnut Chart
+function ScanResultDoughnut({ genuine, suspicious, invalid }) {
+  const total = genuine + suspicious + invalid;
+  const gPct = total > 0 ? (genuine / total) * 100 : 0;
+  const sPct = total > 0 ? (suspicious / total) * 100 : 0;
+  const iPct = total > 0 ? (invalid / total) * 100 : 0;
+  
+  const r = 36;
+  const C = 2 * Math.PI * r; 
+  
+  const gStroke = (gPct / 100) * C;
+  const sStroke = (sPct / 100) * C;
+  const iStroke = (iPct / 100) * C;
+  
+  const gOffset = 0;
+  const sOffset = -gStroke;
+  const iOffset = -(gStroke + sStroke);
+
+  return (
+    <div className="doughnut-layout">
+      <div className="doughnut-chart-svg-wrap">
+        <svg viewBox="0 0 100 100" width="180" height="180">
+          {total === 0 ? (
+            <circle
+              cx="50"
+              cy="50"
+              r={r}
+              fill="transparent"
+              stroke="#e2e8f0"
+              strokeWidth="9"
+            />
+          ) : (
+            <>
+              {genuine > 0 && (
+                <circle
+                  cx="50"
+                  cy="50"
+                  r={r}
+                  fill="transparent"
+                  stroke="var(--success)"
+                  strokeWidth="9"
+                  strokeDasharray={`${gStroke} ${C}`}
+                  strokeDashoffset={gOffset}
+                  strokeLinecap={gPct === 100 ? 'butt' : 'round'}
+                />
+              )}
+              {suspicious > 0 && (
+                <circle
+                  cx="50"
+                  cy="50"
+                  r={r}
+                  fill="transparent"
+                  stroke="var(--warning)"
+                  strokeWidth="9"
+                  strokeDasharray={`${sStroke} ${C}`}
+                  strokeDashoffset={sOffset}
+                  strokeLinecap={sPct === 100 ? 'butt' : 'round'}
+                />
+              )}
+              {invalid > 0 && (
+                <circle
+                  cx="50"
+                  cy="50"
+                  r={r}
+                  fill="transparent"
+                  stroke="var(--danger)"
+                  strokeWidth="9"
+                  strokeDasharray={`${iStroke} ${C}`}
+                  strokeDashoffset={iOffset}
+                  strokeLinecap={iPct === 100 ? 'butt' : 'round'}
+                />
+              )}
+            </>
+          )}
+        </svg>
+        <div className="doughnut-center-label">
+          <span>Scans</span>
+          <strong>{total}</strong>
+        </div>
+      </div>
+      <div className="doughnut-legend">
+        <div className="legend-item">
+          <div className="legend-left">
+            <span className="legend-dot genuine" />
+            <span>Genuine</span>
+          </div>
+          <div className="legend-right">
+            <span className="legend-percent">{gPct.toFixed(0)}%</span>
+            <span className="legend-count">{genuine} logs</span>
+          </div>
+        </div>
+        <div className="legend-item">
+          <div className="legend-left">
+            <span className="legend-dot suspicious" />
+            <span>Suspicious</span>
+          </div>
+          <div className="legend-right">
+            <span className="legend-percent">{sPct.toFixed(0)}%</span>
+            <span className="legend-count">{suspicious} logs</span>
+          </div>
+        </div>
+        <div className="legend-item">
+          <div className="legend-left">
+            <span className="legend-dot invalid" />
+            <span>Invalid</span>
+          </div>
+          <div className="legend-right">
+            <span className="legend-percent">{iPct.toFixed(0)}%</span>
+            <span className="legend-count">{invalid} logs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Progress list for top locations
+function TopLocationsList({ locations }) {
+  const totalCount = useMemo(() => {
+    return locations.reduce((sum, item) => sum + item.count, 0);
+  }, [locations]);
+
+  if (!locations || locations.length === 0) {
+    return <div className="heatmap-empty">No scan logs with location data are available for the selected period.</div>;
+  }
+
+  return (
+    <div className="locations-grid">
+      <div className="top-location-highlight-card">
+        <span className="label">Primary Target</span>
+        <div className="top-location-flag-badge">
+          <Globe size={28} />
+        </div>
+        <h4>{locations[0]?.name || 'No geolocation logs'}</h4>
+        <div className="percentage-pill">
+          {locations[0] && totalCount > 0 ? ((locations[0].count / totalCount) * 100).toFixed(0) : 0}% scans
+        </div>
+      </div>
+      <div className="locations-progress-list">
+        {locations.slice(0, 5).map((loc, idx) => {
+          const percent = totalCount > 0 ? (loc.count / totalCount) * 100 : 0;
+          return (
+            <div key={idx} className="progress-list-item">
+              <div className="progress-label-row">
+                <div>
+                  <span className="loc-rank">{idx + 1}</span>
+                  <span>{loc.name}</span>
+                </div>
+                <span className="progress-percentage">{percent.toFixed(0)}%</span>
+              </div>
+              <div className="progress-bar-bg">
+                <div 
+                  className="progress-bar-fill" 
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RecentScansMiniTable({ logs, onInspect }) {
+  if (logs.length === 0) {
+    return <div className="heatmap-empty">No scan logs available.</div>;
+  }
+  return (
+    <div className="table-wrap" style={{ border: '0', boxShadow: 'none' }}>
+      <table style={{ minWidth: 'auto' }}>
+        <thead>
+          <tr>
+            <th>Serial Code</th>
+            <th>Batch</th>
+            <th>Result</th>
+            <th>Scan Date</th>
+            <th>Inspector</th>
+          </tr>
+        </thead>
+        <tbody>
+          {logs.slice(0, 5).map((log, idx) => (
+            <tr key={log.id || idx}>
+              <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{log.serialCode}</td>
+              <td>{log.batchNumber}</td>
+              <td><Badge result={log.result} /></td>
+              <td>{formatDateTime(log.createdAt)}</td>
+              <td>
+                <button 
+                  className="small outline-btn" 
+                  onClick={() => onInspect(log.serialCode)}
+                  style={{ minHeight: '28px', padding: '0 8px', fontSize: '0.78rem' }}
+                >
+                  Inspect
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const getFriendlyLocation = (lat, lng) => {
+  const coordsMap = {
+    '51.51|-0.13': 'London, UK',
+    '53.48|-2.24': 'Manchester, UK',
+    '53.41|-2.99': 'Liverpool, UK',
+    '51.75|-1.26': 'Oxford, UK',
+    '54.98|-1.61': 'Newcastle, UK'
+  };
+  
+  const match = coordsMap[`${lat.toFixed(2)}|${lng.toFixed(2)}`] || coordsMap[`${lat.toFixed(1)}|${lng.toFixed(1)}`];
+  if (match) return match;
+  
+  return `${lat.toFixed(3)}°N, ${lng.toFixed(3)}°E`;
+};
+
+const geocodeCache = {};
+
+function useGeocodedLocations(logs) {
+  const [resolvedLocations, setResolvedLocations] = useState({});
 
   useEffect(() => {
+    if (!logs || logs.length === 0) return;
+    
+    const uniqueCoords = [];
+    logs.forEach(log => {
+      const lat = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+      const lng = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        const key = `${lat.toFixed(4)}|${lng.toFixed(4)}`;
+        if (!uniqueCoords.some(c => c.key === key)) {
+          uniqueCoords.push({ key, lat, lng });
+        }
+      }
+    });
+
+    let delay = 0;
+    uniqueCoords.forEach(coord => {
+      if (resolvedLocations[coord.key]) return;
+      if (geocodeCache[coord.key]) {
+        setResolvedLocations(prev => ({ ...prev, [coord.key]: geocodeCache[coord.key] }));
+        return;
+      }
+
+      setTimeout(async () => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coord.lat}&lon=${coord.lng}&format=json`, {
+            headers: { 'User-Agent': 'FummanQRVerifyDemo/1.0' }
+          });
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          const addr = data.address || {};
+          
+          const street = addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood || '';
+          const city = addr.city || addr.town || addr.village || addr.county || '';
+          const country = addr.country || '';
+          
+          let resolved = '';
+          if (street && city) resolved = `${street}, ${city}`;
+          else if (city && country) resolved = `${city}, ${country}`;
+          else resolved = data.display_name ? data.display_name.split(',').slice(0, 2).join(',') : `${coord.lat.toFixed(3)}, ${coord.lng.toFixed(3)}`;
+
+          geocodeCache[coord.key] = resolved.trim();
+          setResolvedLocations(prev => ({ ...prev, [coord.key]: resolved.trim() }));
+        } catch (err) {
+          // ignore errors and keep showing coordinates as fallback
+        }
+      }, delay);
+      
+      delay += 1000; // 1s spacing to respect rate-limiting rules politely
+    });
+  }, [logs]);
+
+  return resolvedLocations;
+}
+
+// Admin Dashboard page
+function AdminHome({ passcode, selectedCode, setSelectedCode }) {
+  const [counts, setCounts] = useState({ batches: 0, codes: 0, logs: 0 });
+  const [scanLogs, setScanLogs] = useState([]);
+  const [allCodes, setAllCodes] = useState([]);
+  const [scanStats, setScanStats] = useState({ total: 0, genuine: 0, suspicious: 0, invalid: 0, locationCount: 0 });
+  const [error, setError] = useState('');
+  
+  const [dateFilter, setDateFilter] = useState('Month'); // Today, Yesterday, Month, All
+  const [bottomTab, setBottomTab] = useState('locations'); // locations, heatmap, recent
+
+  const resolvedLocations = useGeocodedLocations(scanLogs);
+
+  const loadData = () => {
     if (!passcode) return;
     Promise.all([
       request('/api/admin/batches', { headers: adminHeaders(passcode) }),
@@ -423,43 +1002,327 @@ function AdminHome({ passcode }) {
     ])
       .then(([batches, codes, summary]) => {
         setCounts({ batches: batches.length, codes: codes.length, logs: summary.total });
+        setAllCodes(codes);
         setScanLogs(summary.logs || []);
-        setScanStats({
-          total: summary.total,
-          genuine: summary.genuine,
-          suspicious: summary.suspicious,
-          invalid: summary.invalid,
-          locationCount: summary.locationCount
-        });
+        setScanStats(summary);
       })
       .catch((err) => setError(err.message));
+  };
+
+  useEffect(() => {
+    loadData();
   }, [passcode]);
+
+  // Handle selected code binding
+  useEffect(() => {
+    if (selectedCode) return;
+    
+    // Default to the code from the most recent scan log
+    if (scanLogs.length > 0 && scanLogs[0].serialCode) {
+      const match = allCodes.find(c => c.serialCode === scanLogs[0].serialCode);
+      if (match) {
+        setSelectedCode(match);
+        return;
+      }
+    }
+    
+    // Secondary fallback to first generated code
+    if (allCodes.length > 0) {
+      setSelectedCode(allCodes[0]);
+    }
+  }, [scanLogs, allCodes, selectedCode]);
+
+  // Date range filtering
+  const filteredLogs = useMemo(() => {
+    const now = new Date();
+    return scanLogs.filter(log => {
+      const logDate = new Date(log.createdAt);
+      if (dateFilter === 'Today') {
+        return logDate.toDateString() === now.toDateString();
+      }
+      if (dateFilter === 'Yesterday') {
+        const yesterday = new Date();
+        yesterday.setDate(now.getDate() - 1);
+        return logDate.toDateString() === yesterday.toDateString();
+      }
+      if (dateFilter === 'Month') {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+        return logDate >= thirtyDaysAgo;
+      }
+      return true; // All
+    });
+  }, [scanLogs, dateFilter]);
+
+  // Stats for filtered range
+  const filteredStats = useMemo(() => {
+    return computeScanStats(filteredLogs);
+  }, [filteredLogs]);
+
+  // Extract friendly location metrics
+  const locations = useMemo(() => {
+    const list = [];
+    const countsMap = {};
+    
+    filteredLogs.forEach(log => {
+      const lat = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat;
+      const lng = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        const key = `${lat.toFixed(4)}|${lng.toFixed(4)}`;
+        const name = resolvedLocations[key] || getFriendlyLocation(lat, lng);
+        countsMap[name] = (countsMap[name] || 0) + 1;
+      }
+    });
+    
+    Object.entries(countsMap).forEach(([name, count]) => {
+      list.push({ name, count });
+    });
+    
+    list.sort((a, b) => b.count - a.count);
+    
+    // No fallback - only pull data available in scan logs
+    
+    return list;
+  }, [filteredLogs, resolvedLocations]);
+
+  const handleInspectBySerial = (serial) => {
+    const match = allCodes.find(c => c.serialCode === serial);
+    if (match) {
+      setSelectedCode(match);
+      window.scrollTo({ top: 120, behavior: 'smooth' });
+    } else {
+      alert(`Code ${serial} details not found. It might be blocked or invalid.`);
+    }
+  };
+
+  const handleBlockSelectedCode = async () => {
+    if (!selectedCode) return;
+    if (!confirm(`Are you sure you want to block code ${selectedCode.serialCode}?`)) return;
+    try {
+      await request(`/api/admin/codes/${selectedCode.id}/block`, {
+        method: 'PATCH',
+        headers: adminHeaders(passcode)
+      });
+      setSelectedCode(prev => prev ? { ...prev, status: 'BLOCKED' } : null);
+      loadData();
+      alert('Code blocked successfully.');
+    } catch (err) {
+      alert('Failed to block code: ' + err.message);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (filteredLogs.length === 0) {
+      alert('No scan logs to export for this range.');
+      return;
+    }
+    const headers = ['serialCode', 'batchNumber', 'result', 'reason', 'location', 'createdAt'];
+    const csv = [
+      headers.join(','),
+      ...filteredLogs.map((log) => {
+        const lat = log.location?.latitude ?? log.location?._latitude ?? log.location?.lat ?? '';
+        const lng = log.location?.longitude ?? log.location?._longitude ?? log.location?.lng ?? '';
+        const locStr = lat && lng ? `${lat};${lng}` : '';
+        return [
+          `"${log.serialCode || ''}"`,
+          `"${log.batchNumber || ''}"`,
+          `"${log.result || ''}"`,
+          `"${log.reason || ''}"`,
+          `"${locStr}"`,
+          `"${log.createdAt || ''}"`
+        ].join(',');
+      })
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `scan-logs-export-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <>
-      <Header title="Admin dashboard" subtitle="Create batches, generate labels, and review verification activity." />
+      {/* Header with Date selectors & actions */}
+      <header className="page-header">
+        <div className="header-info">
+          <h1>Code Analytics</h1>
+          <p>Analyze scan records, geographical distributions, and manage individual verification credentials.</p>
+        </div>
+        
+        <div className="header-actions">
+          <div className="date-filters">
+            {['Today', 'Yesterday', 'Month', 'All'].map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setDateFilter(filter)}
+                className={`date-filter-btn ${dateFilter === filter ? 'active' : ''}`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+          
+          <button onClick={handleExportCSV} className="outline-btn small" style={{ minHeight: '38px' }}>
+            <Download size={16} />
+            Export CSV
+          </button>
+        </div>
+      </header>
+
       {error ? <p className="error">{error}</p> : null}
+      
+      {/* Metric Cards */}
       <div className="cards">
-        <Metric label="Batches" value={counts.batches} />
-        <Metric label="Codes" value={counts.codes} />
-        <Metric label="Scan logs" value={counts.logs} />
-        <Metric label="Scan locations" value={scanStats.locationCount} />
+        <article className="metric-card">
+          <span>Total Scans</span>
+          <strong>{filteredStats.total}</strong>
+        </article>
+        <article className="metric-card success">
+          <span>Genuine Scans</span>
+          <strong>{filteredStats.genuine}</strong>
+        </article>
+        <article className="metric-card warning">
+          <span>Suspicious Scans</span>
+          <strong>{filteredStats.suspicious}</strong>
+        </article>
+        <article className="metric-card danger">
+          <span>Invalid Scans</span>
+          <strong>{filteredStats.invalid}</strong>
+        </article>
       </div>
-      <div className="cards overview-cards">
-        <Metric label="Genuine scans" value={scanStats.genuine} />
-        <Metric label="Suspicious scans" value={scanStats.suspicious} />
-        <Metric label="Invalid scans" value={scanStats.invalid} />
+
+      {/* Main Grid: Left QR Inspector, Middle Line Chart, Right Doughnut */}
+      <div className="dashboard-grid">
+        {/* Left Card: Selected QR Inspector */}
+        <div className="dashboard-card">
+          <div className="dashboard-card-title">
+            <h3>QR Inspector</h3>
+            <QrCode size={16} className="dots" />
+          </div>
+          
+          {selectedCode ? (
+            <div>
+              <div className="inspector-qr-wrap">
+                <QRCode value={selectedCode.verificationUrl} size={150} level="H" includeMargin={true} />
+              </div>
+              <div className="inspector-info">
+                <h4>{selectedCode.serialCode}</h4>
+                <p className="sub-text">Product: {selectedCode.productName}</p>
+                <p className="sub-text">Batch: {selectedCode.batchNumber}</p>
+                <span className={`badge ${selectedCode.status === 'BLOCKED' ? 'suspicious' : 'genuine'}`}>
+                  {selectedCode.status}
+                </span>
+                <div className="url-box" title={selectedCode.verificationUrl}>
+                  {selectedCode.verificationUrl}
+                </div>
+              </div>
+              
+              <div className="inspector-stats-title">Label Scans</div>
+              <div className="inspector-metrics">
+                <div className="inspector-stat-box">
+                  <span>Scan Count</span>
+                  <strong>{selectedCode.scanCount || 0}</strong>
+                </div>
+                <div className="inspector-stat-box">
+                  <span>Expiration</span>
+                  <strong style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    {selectedCode.expiryDate ? selectedCode.expiryDate.split('T')[0] : 'N/A'}
+                  </strong>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleBlockSelectedCode} 
+                disabled={selectedCode.status === 'BLOCKED'}
+                className="danger inspector-action-btn small"
+              >
+                <Ban size={14} />
+                {selectedCode.status === 'BLOCKED' ? 'Code is Blocked' : 'Block Code'}
+              </button>
+            </div>
+          ) : (
+            <div className="inspector-empty">
+              <QrCode size={40} />
+              <p>No code selected for inspection.<br />Click inspect on any list to view details.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Middle Card: SVG Line Trend Chart */}
+        <div className="dashboard-card" style={{ gridColumn: 'span 1' }}>
+          <div className="dashboard-card-title">
+            <h3>Daily Activity Trend</h3>
+            <BarChart3 size={16} className="dots" />
+          </div>
+          <div className="chart-metrics-header">
+            <div className="chart-header-stat">
+              <strong>{filteredStats.total}</strong>
+              <span>Scans</span>
+            </div>
+            <div className="chart-header-stat">
+              <strong style={{ color: '#10b981' }}>{locations.length}</strong>
+              <span>Locations</span>
+            </div>
+          </div>
+          <ScanTrendChart filteredLogs={filteredLogs} />
+        </div>
+
+        {/* Right Card: Doughnut Chart */}
+        <div className="dashboard-card">
+          <div className="dashboard-card-title">
+            <h3>Authenticity Distribution</h3>
+            <Activity size={16} className="dots" />
+          </div>
+          <ScanResultDoughnut 
+            genuine={filteredStats.genuine} 
+            suspicious={filteredStats.suspicious} 
+            invalid={filteredStats.invalid} 
+          />
+        </div>
       </div>
+
+      {/* Bottom Layout: Heatmap & Tab panels */}
       <div className="heatmap-section">
         <div className="heatmap-intro">
-          <h2>Scan activity overview</h2>
-          <p className="muted">This dashboard shows recent scan counts and geolocation distribution from verified devices.</p>
+          <div className="heatmap-intro-left">
+            <h2>Location & Verification Activity</h2>
+            <p>Track spatial coordinates and verify client verification centers.</p>
+          </div>
+          <div className="date-filters">
+            <button 
+              onClick={() => setBottomTab('locations')} 
+              className={`date-filter-btn ${bottomTab === 'locations' ? 'active' : ''}`}
+            >
+              Top Locations
+            </button>
+            <button 
+              onClick={() => setBottomTab('heatmap')} 
+              className={`date-filter-btn ${bottomTab === 'heatmap' ? 'active' : ''}`}
+            >
+              Heatmap
+            </button>
+            <button 
+              onClick={() => setBottomTab('recent')} 
+              className={`date-filter-btn ${bottomTab === 'recent' ? 'active' : ''}`}
+            >
+              Recent Scans
+            </button>
+          </div>
         </div>
-        <ScanHeatmap logs={scanLogs} />
+
+        {bottomTab === 'locations' && <TopLocationsList locations={locations} />}
+        {bottomTab === 'heatmap' && <ScanHeatmap logs={filteredLogs} />}
+        {bottomTab === 'recent' && (
+          <RecentScansMiniTable logs={filteredLogs} onInspect={handleInspectBySerial} />
+        )}
       </div>
+
       <div className="demo-flow">
-        <h2>Demo flow</h2>
-        <p>Create batch Water Purification Chemical / WPC-001, generate 10 codes, download the CSV, then open a verification URL.</p>
+        <h2>Developer Walkthrough Flow</h2>
+        <p>Ensure smooth demo delivery: Go to <strong>Batches</strong>, input code properties, navigate to <strong>Generate</strong> to issue verification cards, download batch metrics (CSV), and use the simulated link to perform mock authenticity check.</p>
       </div>
     </>
   );
@@ -467,19 +1330,12 @@ function AdminHome({ passcode }) {
 
 function Header({ title, subtitle }) {
   return (
-    <header className="page-header">
-      <h1>{title}</h1>
-      <p>{subtitle}</p>
+    <header className="page-header" style={{ marginBottom: '22px' }}>
+      <div className="header-info">
+        <h1 style={{ fontFamily: 'Outfit', fontSize: '1.75rem', fontWeight: 700 }}>{title}</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', margin: '6px 0 0' }}>{subtitle}</p>
+      </div>
     </header>
-  );
-}
-
-function Metric({ label, value }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
   );
 }
 
@@ -529,6 +1385,7 @@ function BatchesPage({ passcode }) {
         body: JSON.stringify(form)
       });
       await load();
+      alert('Batch created successfully.');
     } catch (err) {
       setError(err.message);
     }
@@ -536,34 +1393,39 @@ function BatchesPage({ passcode }) {
 
   return (
     <>
-      <Header title="Batches" subtitle="Create and list product manufacturing batches." />
+      <Header title="Batches Management" subtitle="Create and monitor product manufacturing groups." />
       {error ? <p className="error">{error}</p> : null}
+      
       <form className="form-grid" onSubmit={submit}>
         <label>
-          Product name
+          Product Name
           <input value={form.productName} onChange={(event) => setForm({ ...form, productName: event.target.value })} />
         </label>
         <label>
-          Batch number
+          Batch Number Identifier
           <input value={form.batchNumber} onChange={(event) => setForm({ ...form, batchNumber: event.target.value })} />
         </label>
         <label>
-          Manufacture date
+          Manufacture Date
           <input type="date" value={form.manufactureDate} onChange={(event) => setForm({ ...form, manufactureDate: event.target.value })} />
         </label>
         <label>
-          Expiry date
+          Expiry Date
           <input type="date" value={form.expiryDate} onChange={(event) => setForm({ ...form, expiryDate: event.target.value })} />
         </label>
         <label className="wide">
-          Notes
+          Batch Specific Notes
           <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
         </label>
-        <button type="submit">
-          <Plus size={18} />
-          Create batch
-        </button>
+        
+        <div className="wide">
+          <button type="submit">
+            <Plus size={18} />
+            Create Batch Group
+          </button>
+        </div>
       </form>
+
       <DataTable
         columns={['productName', 'batchNumber', 'manufactureDate', 'expiryDate', 'createdAt', 'actions']}
         rows={batches}
@@ -571,13 +1433,13 @@ function BatchesPage({ passcode }) {
           if (column === 'createdAt') return formatDateTime(row[column]);
           if (column === 'actions') {
             return (
-              <button className="small" type="button" onClick={() => downloadBatchCsv(row.id)}>
+              <button className="small outline-btn" type="button" onClick={() => downloadBatchCsv(row.id)}>
                 <Download size={14} />
-                CSV
+                Download CSV
               </button>
             );
           }
-          return row[column];
+          return row[column] || '-';
         }}
       />
     </>
@@ -621,12 +1483,14 @@ function GeneratePage({ passcode }) {
 
   return (
     <>
-      <Header title="Generate codes" subtitle="Create unique serials and QR verification URLs for a batch." />
+      <Header title="Generate Verification Labels" subtitle="Create serial identifier codes and QR coordinates for batch distribution." />
       {error ? <p className="error">{error}</p> : null}
+      
       <form className="inline-form" onSubmit={submit}>
         <label>
-          Batch
+          Product Batch
           <select value={batchId} onChange={(event) => setBatchId(event.target.value)}>
+            <option value="" disabled>Select target batch</option>
             {batches.map((batch) => (
               <option key={batch.id} value={batch.id}>
                 {batch.batchNumber} - {batch.productName}
@@ -635,48 +1499,51 @@ function GeneratePage({ passcode }) {
           </select>
         </label>
         <label>
-          Number of codes
+          Issue Quantity
           <input type="number" min="1" max="500" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
         </label>
         <button type="submit">
-          <FlaskConical size={18} />
-          Generate
+          <Plus size={18} />
+          Generate Credentials
         </button>
       </form>
+      
       {generated.length > 0 ? (
         <div className="table-actions">
-          <button type="button" onClick={() => downloadCsv(generated)}>
-            <Download size={18} />
-            Download CSV
+          <button type="button" onClick={() => downloadCsv(generated)} className="outline-btn">
+            <Download size={16} />
+            Download CSV Sheet
           </button>
-          <button type="button" onClick={() => setShowQrCodes(!showQrCodes)}>
-            <QrCode size={18} />
-            {showQrCodes ? 'Hide' : 'View'} QR Codes
+          <button type="button" onClick={() => setShowQrCodes(!showQrCodes)} className="outline-btn">
+            <QrCode size={16} />
+            {showQrCodes ? 'Hide' : 'Review'} QR Labels
           </button>
           {showQrCodes ? (
             <button type="button" onClick={() => window.print()}>
-              <Printer size={18} />
-              Print Labels
+              <Printer size={16} />
+              Print Sticker Sheets
             </button>
           ) : null}
         </div>
       ) : null}
+      
       {showQrCodes && generated.length > 0 ? (
         <div className="qr-grid">
           {generated.map((code) => (
             <div key={code.id} className="qr-item">
-              <QRCode value={code.verificationUrl} size={256} level="H" includeMargin={true} />
+              <QRCode value={code.verificationUrl} size={130} level="H" includeMargin={true} />
               <p className="qr-serial">{code.serialCode}</p>
             </div>
           ))}
         </div>
       ) : null}
+      
       <DataTable columns={['serialCode', 'verificationUrl', 'batchNumber', 'productName']} rows={generated} />
     </>
   );
 }
 
-function CodesPage({ passcode }) {
+function CodesPage({ passcode, setSelectedCode }) {
   const [codes, setCodes] = useState([]);
   const [error, setError] = useState('');
 
@@ -690,6 +1557,7 @@ function CodesPage({ passcode }) {
   }, [passcode]);
 
   async function blockCode(id) {
+    if (!confirm('Are you sure you want to block this verification code?')) return;
     setError('');
     try {
       await request(`/api/admin/codes/${id}/block`, {
@@ -697,45 +1565,71 @@ function CodesPage({ passcode }) {
         headers: adminHeaders(passcode)
       });
       await load();
+      alert('Code blocked successfully.');
     } catch (err) {
       setError(err.message);
     }
   }
 
+  const handleInspectRow = (code) => {
+    setSelectedCode(code);
+    window.history.pushState(null, '', '/admin');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
   return (
     <>
-      <Header title="Codes" subtitle="Review generated labels and manually block suspicious codes." />
+      <Header title="Verification Credentials" subtitle="Browse, audit, and block suspicious verification codes." />
       <div className="table-actions">
-        <button type="button" onClick={load}>
-          <RefreshCw size={18} />
-          Refresh
+        <button type="button" onClick={load} className="outline-btn">
+          <RefreshCw size={16} />
+          Reload
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      
       <DataTable
         columns={['serialCode', 'batchNumber', 'status', 'scanCount', 'lastScannedAt', 'actions']}
         rows={codes}
         renderCell={(row, column) => {
-          if (column === 'status') return <Badge result={row.status === 'BLOCKED' ? 'SUSPICIOUS' : 'GENUINE'}>{row.status}</Badge>;
+          if (column === 'status') {
+            return <Badge result={row.status === 'BLOCKED' ? 'SUSPICIOUS' : 'GENUINE'}>{row.status}</Badge>;
+          }
           if (column === 'lastScannedAt') return formatDateTime(row.lastScannedAt);
           if (column === 'actions') {
             return (
-              <button className="small danger" type="button" onClick={() => blockCode(row.id)} disabled={row.status === 'BLOCKED'}>
-                <Ban size={16} />
-                Block
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  className="small outline-btn" 
+                  type="button" 
+                  onClick={() => handleInspectRow(row)}
+                >
+                  Inspect
+                </button>
+                <button 
+                  className="small danger" 
+                  type="button" 
+                  onClick={() => blockCode(row.id)} 
+                  disabled={row.status === 'BLOCKED'}
+                >
+                  <Ban size={14} />
+                  Block
+                </button>
+              </div>
             );
           }
-          return row[column];
+          return row[column] || '-';
         }}
       />
     </>
   );
 }
 
-function LogsPage({ passcode }) {
+function LogsPage({ passcode, setSelectedCode }) {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
+
+  const resolvedLocations = useGeocodedLocations(logs);
 
   const load = () =>
     request('/api/admin/scan-logs', { headers: adminHeaders(passcode) })
@@ -746,36 +1640,67 @@ function LogsPage({ passcode }) {
     if (passcode) load();
   }, [passcode]);
 
+  const handleInspectLog = async (serialCode) => {
+    try {
+      const codes = await request('/api/admin/codes', { headers: adminHeaders(passcode) });
+      const code = codes.find(c => c.serialCode === serialCode);
+      if (code) {
+        setSelectedCode(code);
+        window.history.pushState(null, '', '/admin');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } else {
+        alert('Could not find detailed information for serial: ' + serialCode);
+      }
+    } catch (err) {
+      alert('Error fetching code details: ' + err.message);
+    }
+  };
+
   return (
     <>
-      <Header title="Scan logs" subtitle="See each customer verification attempt." />
+      <Header title="Auditing Logs" subtitle="Chronological tracking of each consumer checking attempt." />
       <div className="table-actions">
-        <button type="button" onClick={load}>
-          <RefreshCw size={18} />
-          Refresh
+        <button type="button" onClick={load} className="outline-btn">
+          <RefreshCw size={16} />
+          Reload
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      
       <DataTable
-        columns={['serialCode', 'batchNumber', 'result', 'reason', 'location', 'createdAt']}
+        columns={['serialCode', 'batchNumber', 'result', 'reason', 'location', 'createdAt', 'inspect']}
         rows={logs}
         renderCell={(row, column) => {
           if (column === 'result') return <Badge result={row.result} />;
           if (column === 'createdAt') return formatDateTime(row.createdAt);
+          if (column === 'inspect') {
+            return (
+              <button 
+                className="small outline-btn" 
+                type="button" 
+                onClick={() => handleInspectLog(row.serialCode)}
+              >
+                Inspect
+              </button>
+            );
+          }
           if (column === 'location') {
             if (!row.location) return '-';
             const latitude = row.location.latitude ?? row.location._latitude ?? row.location.lat;
             const longitude = row.location.longitude ?? row.location._longitude ?? row.location.lng;
             if (typeof latitude !== 'number' || typeof longitude !== 'number') return '-';
+            const key = `${latitude.toFixed(4)}|${longitude.toFixed(4)}`;
+            const name = resolvedLocations[key] || getFriendlyLocation(latitude, longitude);
             return (
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="location-link"
+                title={`Coordinates: ${latitude}, ${longitude}`}
               >
-                <MapPin size={14} />
-                {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                <MapPin size={12} />
+                {name}
               </a>
             );
           }
@@ -801,12 +1726,12 @@ function DataTable({ columns, rows, renderCell }) {
           {rows.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="empty-cell">
-                No records yet.
+                No database records returned.
               </td>
             </tr>
           ) : (
-            rows.map((row) => (
-              <tr key={row.id || row.serialCode}>
+            rows.map((row, idx) => (
+              <tr key={row.id || row.serialCode || idx}>
                 {columns.map((column) => (
                   <td key={column}>{renderCell ? renderCell(row, column) : row[column]}</td>
                 ))}
@@ -822,6 +1747,7 @@ function DataTable({ columns, rows, renderCell }) {
 function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [passcode, setPasscode] = useState(localStorage.getItem(ADMIN_KEY) || '');
+  const [selectedCode, setSelectedCode] = useState(null);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -845,11 +1771,36 @@ function App() {
         return <AdminLogin setPasscode={setPasscode} />;
       }
 
-      let content = <AdminHome passcode={passcode} />;
-      if (currentPath === '/admin/batches') content = <BatchesPage passcode={passcode} />;
-      if (currentPath === '/admin/generate') content = <GeneratePage passcode={passcode} />;
-      if (currentPath === '/admin/codes') content = <CodesPage passcode={passcode} />;
-      if (currentPath === '/admin/logs') content = <LogsPage passcode={passcode} />;
+      let content = (
+        <AdminHome 
+          passcode={passcode} 
+          selectedCode={selectedCode} 
+          setSelectedCode={setSelectedCode} 
+        />
+      );
+      
+      if (currentPath === '/admin/batches') {
+        content = <BatchesPage passcode={passcode} />;
+      }
+      if (currentPath === '/admin/generate') {
+        content = <GeneratePage passcode={passcode} />;
+      }
+      if (currentPath === '/admin/codes') {
+        content = (
+          <CodesPage 
+            passcode={passcode} 
+            setSelectedCode={setSelectedCode} 
+          />
+        );
+      }
+      if (currentPath === '/admin/logs') {
+        content = (
+          <LogsPage 
+            passcode={passcode} 
+            setSelectedCode={setSelectedCode} 
+          />
+        );
+      }
 
       return (
         <AdminLayout passcode={passcode} setPasscode={setPasscode} currentPath={currentPath}>
@@ -859,7 +1810,7 @@ function App() {
     }
 
     return <ManualVerifyPage />;
-  }, [currentPath, passcode]);
+  }, [currentPath, passcode, selectedCode]);
 
   return page;
 }
