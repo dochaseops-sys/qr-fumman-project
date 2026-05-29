@@ -7,11 +7,21 @@ const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIV
 const missing = required.filter((key) => !process.env[key]);
 
 if (!admin.apps.length && missing.length === 0) {
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
+  privateKey = privateKey.trim();
+  if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  if (privateKey.startsWith("'") && privateKey.endsWith("'")) {
+    privateKey = privateKey.slice(1, -1);
+  }
+  privateKey = privateKey.replace(/\\n/g, '\n');
+
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+      privateKey: privateKey
     })
   });
 }
