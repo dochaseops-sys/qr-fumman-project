@@ -317,6 +317,39 @@ router.get('/admin/scan-logs', requireAdmin, async (req, res, next) => {
   }
 });
 
+router.post('/reports', async (req, res, next) => {
+  try {
+    const { serialCode, userName, userPhone, vendorPhone, vendorAddress, productName, batchNumber } = req.body;
+    if (!serialCode || !userName || !userPhone || !vendorPhone || !vendorAddress) {
+      return res.status(400).json({ error: 'All fields are required.' });
+    }
+    const db = getDb();
+    await db.collection('reports').add({
+      serialCode: String(serialCode).trim().toUpperCase(),
+      userName: String(userName).trim(),
+      userPhone: String(userPhone).trim(),
+      vendorPhone: String(vendorPhone).trim(),
+      vendorAddress: String(vendorAddress).trim(),
+      productName: productName ? String(productName).trim() : '',
+      batchNumber: batchNumber ? String(batchNumber).trim() : '',
+      createdAt: FieldValue.serverTimestamp()
+    });
+    res.status(201).json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/admin/reports', requireAdmin, async (req, res, next) => {
+  try {
+    const db = getDb();
+    const snapshot = await db.collection('reports').orderBy('createdAt', 'desc').limit(500).get();
+    res.json(snapshot.docs.map(serializeDoc));
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.use((error, req, res, next) => {
   console.error(error);
   res.status(500).json({ error: error.message || 'Server error.' });

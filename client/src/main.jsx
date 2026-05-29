@@ -4,7 +4,7 @@ import {
   Ban, Download, Plus, QrCode, RefreshCw, Search, ShieldCheck, 
   Lock, Printer, BarChart3, Database, FileText, ChevronRight,
   TrendingUp, Activity, MapPin, Globe, AlertTriangle, LogOut, CheckCircle2,
-  Calendar, Layers, Cpu, Compass
+  Calendar, Layers, Cpu, Compass, X
 } from 'lucide-react';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import './styles.css';
@@ -290,11 +290,123 @@ function PublicShell({ children }) {
   );
 }
 
-function ResultView({ result }) {
+function ReportModal({ isOpen, onClose, serialCode, productName, batchNumber, onSubmitSuccess }) {
+  const [form, setForm] = useState({
+    userName: '',
+    userPhone: '',
+    vendorPhone: '',
+    vendorAddress: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.userName.trim() || !form.userPhone.trim() || !form.vendorPhone.trim() || !form.vendorAddress.trim()) {
+      setError('All fields are required.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await request('/api/reports', {
+        method: 'POST',
+        body: JSON.stringify({
+          serialCode,
+          productName,
+          batchNumber,
+          ...form
+        })
+      });
+      onSubmitSuccess();
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to submit report. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card">
+        <div className="modal-header">
+          <h3>Report Fraudulent Vendor</h3>
+          <button className="modal-close" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="modal-body">
+          <p>
+            This serial code has been flagged as suspicious or blocked. Please provide the vendor details below to unlock and verify the product information.
+          </p>
+          {error ? <p className="error" style={{ margin: '0 0 16px' }}>{error}</p> : null}
+          <div className="stack" style={{ marginTop: '0', gap: '12px' }}>
+            <label>
+              Your Full Name
+              <input
+                required
+                value={form.userName}
+                onChange={(e) => setForm({ ...form, userName: e.target.value })}
+                placeholder="Enter your name"
+              />
+            </label>
+            <label>
+              Your Phone Number
+              <input
+                required
+                type="tel"
+                value={form.userPhone}
+                onChange={(e) => setForm({ ...form, userPhone: e.target.value })}
+                placeholder="Enter your phone number"
+              />
+            </label>
+            <label>
+              Vendor Phone Number
+              <input
+                required
+                type="tel"
+                value={form.vendorPhone}
+                onChange={(e) => setForm({ ...form, vendorPhone: e.target.value })}
+                placeholder="Enter vendor's phone number"
+              />
+            </label>
+            <label>
+              Vendor Location / Address
+              <textarea
+                required
+                value={form.vendorAddress}
+                onChange={(e) => setForm({ ...form, vendorAddress: e.target.value })}
+                placeholder="Enter vendor's address or market shop location"
+                rows={3}
+              />
+            </label>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="outline-btn small" onClick={onClose} disabled={loading}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading}>
+              {loading ? 'Submitting...' : 'Submit Report'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ResultView({ result, reportSubmitted, onOpenReport }) {
   if (!result) return null;
 
   const isGenuine = result.result === 'GENUINE';
   const isSuspicious = result.result === 'SUSPICIOUS';
+  const isBlocked = isSuspicious && result.code?.status === 'BLOCKED';
+
+  // Show details if code is genuine, or if suspicious active and report is submitted
+  const showDetails = isGenuine || (isSuspicious && !isBlocked && reportSubmitted);
 
   return (
     <div className="result-box">
@@ -302,13 +414,58 @@ function ResultView({ result }) {
         {isGenuine ? (
           <CheckCircle2 size={54} color="var(--success)" />
         ) : (
-          <AlertTriangle size={54} color={isSuspicious ? 'var(--warning)' : 'var(--danger)'} />
+          <AlertTriangle size={54} color={isBlocked ? 'var(--danger)' : 'var(--warning)'} />
         )}
       </div>
-      <Badge result={result.result} />
-      <p className="result-message">{result.message}</p>
+      <Badge result={isBlocked ? 'SUSPICIOUS' : result.result} />
+      <p className="result-message">
+        {isBlocked ? 'This security code is suspended / blocked.' : result.message}
+      </p>
+
+      {/* Notice cards and banners for fraud reporting */}
+      {isSuspicious && (
+        <>
+          {isBlocked ? (
+            <>
+              {!reportSubmitted ? (
+                <div className="report-notice-box">
+                  <p>
+                    <strong>Blocked Code.</strong> This product's security code has been suspended and marked as fraudulent. Product specifications are permanently locked. Please report the vendor's details below to assist enforcement.
+                  </p>
+                  <button type="button" onClick={onOpenReport}>
+                    Report Fraudulent Vendor
+                  </button>
+                </div>
+              ) : (
+                <div className="report-success-banner">
+                  <CheckCircle2 size={16} />
+                  <span>Report submitted successfully. Thank you for your assistance. Product details remain locked.</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {!reportSubmitted ? (
+                <div className="report-notice-box">
+                  <p>
+                    <strong>Duplicate Scans Detected.</strong> This code has already been checked multiple times. Batch and product parameters are locked. Submit a vendor report to unlock details.
+                  </p>
+                  <button type="button" onClick={onOpenReport}>
+                    Report Vendor to Unlock
+                  </button>
+                </div>
+              ) : (
+                <div className="report-success-banner">
+                  <CheckCircle2 size={16} />
+                  <span>Report submitted. Product specifications unlocked below.</span>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
       
-      {result.code ? (
+      {showDetails && result.code ? (
         <dl className="product-details">
           <div>
             <dt>Product Name</dt>
@@ -332,7 +489,9 @@ function ResultView({ result }) {
       <p className="instruction">
         {isGenuine
           ? 'Confirm the batch seal is fully intact and has not been tampered with before usage.'
-          : 'Do not use this product. Report this scan to your distributor or contact customer support.'}
+          : isBlocked 
+            ? 'Do not use this chemical. Contact the authorities and return it to the point of purchase.'
+            : 'Check the details above. If this is not the batch you purchased, pause usage and contact supply audit.'}
       </p>
     </div>
   );
@@ -340,10 +499,14 @@ function ResultView({ result }) {
 
 function TokenVerifyPage({ token }) {
   const [state, setState] = useState({ loading: true, result: null, error: '' });
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
     setState({ loading: true, result: null, error: '' });
+    setReportSubmitted(false);
+    setModalOpen(false);
     
     (async () => {
       try {
@@ -357,7 +520,12 @@ function TokenVerifyPage({ token }) {
         if (!response.ok) {
           throw new Error(data.error || 'Request failed.');
         }
-        if (active) setState({ loading: false, result: data, error: '' });
+        if (active) {
+          setState({ loading: false, result: data, error: '' });
+          if (data.result === 'SUSPICIOUS') {
+            setModalOpen(true);
+          }
+        }
       } catch (error) {
         if (active) setState({ loading: false, result: null, error: error.message });
       }
@@ -372,7 +540,22 @@ function TokenVerifyPage({ token }) {
     <PublicShell>
       {state.loading ? <p className="muted spacious">Checking verification token...</p> : null}
       {state.error ? <p className="error">{state.error}</p> : null}
-      <ResultView result={state.result} />
+      
+      <ResultView 
+        result={state.result} 
+        reportSubmitted={reportSubmitted}
+        onOpenReport={() => setModalOpen(true)}
+      />
+
+      <ReportModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        serialCode={state.result?.code?.serialCode || token}
+        productName={state.result?.code?.productName}
+        batchNumber={state.result?.code?.batchNumber}
+        onSubmitSuccess={() => setReportSubmitted(true)}
+      />
+
       <Link className="link-button" href="/verify">Enter serial manually</Link>
     </PublicShell>
   );
@@ -383,12 +566,16 @@ function ManualVerifyPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
     setLoading(true);
     setError('');
     setResult(null);
+    setReportSubmitted(false);
+    setModalOpen(false);
     try {
       const location = await getUserLocation();
       const data = await request('/api/verify-serial', {
@@ -396,6 +583,9 @@ function ManualVerifyPage() {
         body: JSON.stringify({ serialCode, location })
       });
       setResult(data);
+      if (data.result === 'SUSPICIOUS') {
+        setModalOpen(true);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -420,7 +610,21 @@ function ManualVerifyPage() {
         </button>
       </form>
       {error ? <p className="error">{error}</p> : null}
-      <ResultView result={result} />
+      
+      <ResultView 
+        result={result} 
+        reportSubmitted={reportSubmitted}
+        onOpenReport={() => setModalOpen(true)}
+      />
+
+      <ReportModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        serialCode={result?.code?.serialCode || serialCode}
+        productName={result?.code?.productName}
+        batchNumber={result?.code?.batchNumber}
+        onSubmitSuccess={() => setReportSubmitted(true)}
+      />
     </PublicShell>
   );
 }
@@ -519,6 +723,9 @@ function AdminLayout({ children, passcode, setPasscode, currentPath }) {
             </Link>
             <Link href="/admin/logs" className={`navbar-link ${isLinkActive('/admin/logs') ? 'active' : ''}`}>
               Scan Logs
+            </Link>
+            <Link href="/admin/reports" className={`navbar-link ${isLinkActive('/admin/reports') ? 'active' : ''}`}>
+              Reports
             </Link>
           </nav>
         </div>
@@ -1711,6 +1918,42 @@ function LogsPage({ passcode, setSelectedCode }) {
   );
 }
 
+function ReportsPage({ passcode }) {
+  const [reports, setReports] = useState([]);
+  const [error, setError] = useState('');
+
+  const load = () =>
+    request('/api/admin/reports', { headers: adminHeaders(passcode) })
+      .then(setReports)
+      .catch((err) => setError(err.message));
+
+  useEffect(() => {
+    if (passcode) load();
+  }, [passcode]);
+
+  return (
+    <>
+      <Header title="Fraud & Vendor Reports" subtitle="Review reports submitted by users who checked suspicious or blocked products." />
+      <div className="table-actions">
+        <button type="button" onClick={load} className="outline-btn">
+          <RefreshCw size={16} />
+          Reload
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      
+      <DataTable
+        columns={['serialCode', 'batchNumber', 'productName', 'userName', 'userPhone', 'vendorPhone', 'vendorAddress', 'createdAt']}
+        rows={reports}
+        renderCell={(row, column) => {
+          if (column === 'createdAt') return formatDateTime(row.createdAt);
+          return row[column] || '-';
+        }}
+      />
+    </>
+  );
+}
+
 function DataTable({ columns, rows, renderCell }) {
   return (
     <div className="table-wrap">
@@ -1800,6 +2043,9 @@ function App() {
             setSelectedCode={setSelectedCode} 
           />
         );
+      }
+      if (currentPath === '/admin/reports') {
+        content = <ReportsPage passcode={passcode} />;
       }
 
       return (
