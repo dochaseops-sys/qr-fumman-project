@@ -221,11 +221,22 @@ router.post('/admin/generate-codes', requireAdmin, async (req, res, next) => {
     const batchWrite = db.batch();
     const generatedCodes = [];
 
+    let baseUrl = process.env.PUBLIC_VERIFY_BASE_URL;
+    if (!baseUrl) {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.headers.host || 'localhost:4000';
+      if (host.includes('localhost:4000') || host.includes('127.0.0.1:4000')) {
+        baseUrl = 'http://localhost:5173';
+      } else {
+        baseUrl = `${protocol}://${host}`;
+      }
+    }
+
     for (let index = 0; index < parsedQuantity; index += 1) {
       const token = generateToken();
       const codeRef = db.collection('codes').doc();
       const serialCode = generateSerialCode(batch.batchNumber, index + 1);
-      const verificationUrl = toVerificationUrl(token);
+      const verificationUrl = toVerificationUrl(token, baseUrl);
 
       batchWrite.set(codeRef, {
         batchId,

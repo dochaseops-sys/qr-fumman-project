@@ -15,7 +15,7 @@ export function generateSerialCode(batchNumber, sequenceNumber) {
   return `${cleanBatch}-${sequence}-${randomPart}`;
 }
 
-export function toVerificationUrl(token) {
-  const baseUrl = process.env.PUBLIC_VERIFY_BASE_URL || 'http://localhost:5173';
-  return `${baseUrl.replace(/\/$/, '')}/verify/${token}`;
+export function toVerificationUrl(token, baseUrl) {
+  const finalBase = baseUrl || process.env.PUBLIC_VERIFY_BASE_URL || 'http://localhost:5173';
+  return `${finalBase.replace(/\/$/, '')}/verify/${token}`;
 }
