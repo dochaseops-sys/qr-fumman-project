@@ -352,7 +352,15 @@ router.get('/admin/reports', requireAdmin, async (req, res, next) => {
 
 router.use((error, req, res, next) => {
   console.error(error);
-  res.status(500).json({ error: error.message || 'Server error.' });
+  let message = error.message || 'Server error.';
+  
+  // If private key decoding fails, append safe debug info about the environment variable
+  if (message.includes('DECODER') || message.includes('unsupported') || message.includes('metadata')) {
+    const rawKey = process.env.FIREBASE_PRIVATE_KEY || '';
+    message += ` [Debug key: len=${rawKey.length}, starts='${rawKey.substring(0, 30)}', ends='${rawKey.substring(Math.max(0, rawKey.length - 30))}', hasNewlines=${rawKey.includes('\n')}, hasEscapedNewlines=${rawKey.includes('\\n')}]`;
+  }
+  
+  res.status(500).json({ error: message });
 });
 
 export default router;
