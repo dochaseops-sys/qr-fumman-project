@@ -4,7 +4,7 @@ import {
   Ban, Download, Plus, QrCode, RefreshCw, Search, ShieldCheck, 
   Lock, Printer, BarChart3, Database, FileText, ChevronRight,
   TrendingUp, Activity, MapPin, Globe, AlertTriangle, LogOut, CheckCircle2,
-  Calendar, Layers, Cpu, Compass, X
+  Calendar, Layers, Cpu, Compass, X, KeyRound
 } from 'lucide-react';
 import { QRCodeCanvas as QRCode } from 'qrcode.react';
 import './styles.css';
